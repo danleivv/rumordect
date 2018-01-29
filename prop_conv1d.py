@@ -20,7 +20,7 @@ class DSet(Dataset):
     def __init__(self, samples, step=100):
         self.data = np.zeros((len(samples), step))
         self.target = np.zeros(len(samples), dtype=np.float32)
-        raw_data = json.load(open('prop_span.json'))
+        raw_data = json.load(open('data/prop_span.json'))
         for i, sample in enumerate(samples):
             span = raw_data[sample]
             volumn = map(lambda x: int(x * step / 8.1), np.log10(span))

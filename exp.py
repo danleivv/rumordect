@@ -5,7 +5,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from networkx.drawing.nx_agraph import graphviz_layout
 
-jpath = '/Users/danlei/Desktop/rumdect/rumor/3567665295750659.json'
+jpath = 'rumor/3567665295750659.json'
 data = json.load(open(jpath))
 G = nx.Graph()
 

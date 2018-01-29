@@ -5,7 +5,7 @@ from glob import glob
 
 def classify_json():
 
-    for line in open('Weibo.txt').readlines():
+    for line in open('data/Weibo.txt').readlines():
         idx, label = line.split()[:2]
         fname = idx[4:] + '.json'
         label = label[-1]
@@ -24,7 +24,7 @@ def get_prop_info():
         span = list(map(lambda x: max(0, x['t'] - begin) + 1, raw))
         data[item] = span
 
-    with open('prop_span.json', 'w') as fw:
+    with open('data/prop_span.json', 'w') as fw:
         json.dump(data, fw)
 
 
