@@ -77,21 +77,23 @@ class RNN(torch.nn.Module):
         return Variable(h0)
 
 
-def train_cnn(step=100, n_epoch=10):
+def train(model, step_size, n_epoch=20):
 
-    print('building model ...')
-    model = CNN(step)
     if use_gpu:
         model.cuda()
     criterion = nn.BCELoss()
     optimizer = optim.RMSprop(model.parameters())
+    model_type = model.__class__.__name__
 
     for epoch in range(n_epoch):
         print('Epoch %03d:' % (epoch + 1))
-        train_loss, test_loss, tr_acc, val_acc = 0.0, 0.0, 0.0, 0.0
+        tr_loss, val_loss, tr_acc, val_acc = 0.0, 0.0, 0.0, 0.0
         model.train()
         for data, target in train_loader:
-            data = data.view(data.size(0), 1, data.size(1))
+            if model_type == 'RNN':
+                data = data.view(data.size(0), -1, step_size)
+            elif model_type == 'CNN':
+                data = data.view(data.size(0), 1, -1)
             target = target.view(target.size(0), 1)
             optimizer.zero_grad()
             if use_gpu:
@@ -101,76 +103,31 @@ def train_cnn(step=100, n_epoch=10):
             loss = criterion(output, target)
             loss.backward()
             optimizer.step()
-            train_loss += loss.data[0] * data.size(0)
+            tr_loss += loss.data[0] * data.size(0)
             pred = torch.sign(output.data - 0.5).clamp_(min=0)
             tr_acc += pred.eq(target.data).cpu().sum()
-        train_loss /= len(train_loader.dataset)
+        tr_loss /= len(train_loader.dataset)
         tr_acc = tr_acc / len(train_loader.dataset) * 100
-        print('tr_loss %.6f | tr_acc %.2f%%' % (train_loss, tr_acc))
+        print(f'tr_loss {tr_loss:.6f} | tr_acc {tr_acc:.2f}%')
 
         model.eval()
         for data, target in test_loader:
-            data = data.view(data.size(0), 1, data.size(1))
+            if model_type == 'RNN':
+                data = data.view(data.size(0), -1, step_size)
+            elif model_type == 'CNN':
+                data = data.view(data.size(0), 1, -1)
             target = target.view(target.size(0), 1)
             if use_gpu:
                 data, target = data.cuda(), target.cuda()
             data, target = Variable(data, volatile=True), Variable(target)
             output = model(data)
             loss = criterion(output, target)
-            test_loss += loss.data[0] * data.size(0)
+            val_loss += loss.data[0] * data.size(0)
             pred = torch.sign(output.data - 0.5).clamp_(min=0)
             val_acc += pred.eq(target.data).cpu().sum()
-        test_loss /= len(test_loader.dataset)
+        val_loss /= len(test_loader.dataset)
         val_acc = val_acc / len(test_loader.dataset) * 100
-        print('val_loss %.6f | val_acc %.2f%%' % (test_loss, val_acc))
-
-
-def train_rnn(step_size=10, n_epoch=10):
-
-    print('building model ...')
-    model = RNN(step_size)
-    if use_gpu:
-        model.cuda()
-    criterion = nn.BCELoss()
-    optimizer = optim.RMSprop(model.parameters())
-
-    for epoch in range(n_epoch):
-        print('Epoch %03d:' % (epoch + 1))
-        train_loss, test_loss, tr_acc, val_acc = 0.0, 0.0, 0.0, 0.0
-        model.train()
-        for data, target in train_loader:
-            data = data.view(data.size(0), -1, step_size)
-            target = target.view(target.size(0), 1)
-            optimizer.zero_grad()
-            if use_gpu:
-                data, target = data.cuda(), target.cuda()
-            data, target = Variable(data), Variable(target)
-            output = model(data)
-            loss = criterion(output, target)
-            loss.backward()
-            optimizer.step()
-            train_loss += loss.data[0] * data.size(0)
-            pred = torch.sign(output.data - 0.5).clamp_(min=0)
-            tr_acc += pred.eq(target.data).cpu().sum()
-        train_loss /= len(train_loader.dataset)
-        tr_acc = tr_acc / len(train_loader.dataset) * 100
-        print('tr_loss %.6f | tr_acc %.2f%%' % (train_loss, tr_acc))
-
-        model.eval()
-        for data, target in test_loader:
-            data = data.view(data.size(0), -1, step_size)
-            target = target.view(target.size(0), 1)
-            if use_gpu:
-                data, target = data.cuda(), target.cuda()
-            data, target = Variable(data, volatile=True), Variable(target)
-            output = model(data)
-            loss = criterion(output, target)
-            test_loss += loss.data[0] * data.size(0)
-            pred = torch.sign(output.data - 0.5).clamp_(min=0)
-            val_acc += pred.eq(target.data).cpu().sum()
-        test_loss /= len(test_loader.dataset)
-        val_acc = val_acc / len(test_loader.dataset) * 100
-        print('val_loss %.6f | val_acc %.2f%%' % (test_loss, val_acc))
+        print(f'val_loss {val_loss:.6f} | val_acc {val_acc:.2f}%')
 
 
 if __name__ == '__main__':
@@ -182,4 +139,4 @@ if __name__ == '__main__':
     train_loader = DataLoader(DSet(train_data), batch_size=128, **kwargs)
     test_loader = DataLoader(DSet(test_data), batch_size=128, **kwargs)
 
-    train_rnn(10, 10)
+    train(RNN(10), 10, 10)
