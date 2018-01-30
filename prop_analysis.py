@@ -42,14 +42,14 @@ class CNN(torch.nn.Module):
         super(CNN, self).__init__()
         self.conv1 = nn.Conv1d(1, 8, 3, padding=1)
         self.conv2 = nn.Conv1d(8, 16, 3, padding=1)
-        self.fc_in = input_size // 4 * 16
-        self.fc1 = nn.Linear(self.fc_in, 64)
+        self.fc1 = nn.Linear(input_size // 4 * 16, 64)
         self.fc2 = nn.Linear(64, 1)
 
     def forward(self, x):
+        x = x.view(x.size(0), 1, -1)
         x = F.relu(F.max_pool1d(self.conv1(x), 2))
         x = F.relu(F.max_pool1d(self.conv2(x), 2))
-        x = F.dropout(x.view(-1, self.fc_in), training=self.training)
+        x = F.dropout(x.view(x.size(0), -1), training=self.training)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return F.sigmoid(x)
@@ -59,12 +59,14 @@ class RNN(torch.nn.Module):
 
     def __init__(self, input_size, hidden_size=64, bidirectional=True):
         super(RNN, self).__init__()
+        self.input_size = input_size
         self.hidden_size = hidden_size
         self.n_directions = 2 if bidirectional else 1
-        self.rnn = nn.GRU(input_size, hidden_size, batch_first=True, bidirectional=True)
+        self.rnn = nn.GRU(input_size, hidden_size, batch_first=True, bidirectional=bidirectional)
         self.fc = nn.Linear(hidden_size * self.n_directions, 1)
 
     def forward(self, x):
+        x = x.view(x.size(0), -1, self.input_size)
         h0 = self._init_hidden_state(x.size(0))
         x, hn = self.rnn(x, h0)
         x = self.fc(x[:, -1, :])
@@ -77,7 +79,37 @@ class RNN(torch.nn.Module):
         return Variable(h0)
 
 
-def train(model, step_size, n_epoch=20):
+class RCN(torch.nn.Module):
+
+    def __init__(self, input_size, step_size, hidden_size=64):
+        super(RCN, self).__init__()
+        self.hidden_size = hidden_size
+        self.step_size = step_size
+        self.rnn = nn.GRU(step_size, hidden_size, batch_first=True, bidirectional=True, dropout=0.5)
+        self.conv1 = nn.Conv1d(1, 8, 3, padding=1)
+        self.conv2 = nn.Conv1d(8, 16, 3, padding=1)
+        self.fc_dim = input_size // 4 * 16 + hidden_size * 2
+        self.fc = nn.Linear(self.fc_dim, 1)
+
+    def forward(self, x):
+        rx = x.view(x.size(0), -1, self.step_size)
+        cx = x.view(x.size(0), 1, -1)
+        h0 = self._init_hidden_state(rx.size(0))
+        rx, hn = self.rnn(rx, h0)
+        cx = F.relu(F.max_pool1d(self.conv1(cx), 2))
+        cx = F.relu(F.max_pool1d(self.conv2(cx), 2))
+        rcx = torch.cat((rx[:, -1, :].view(x.size(0), -1), cx.view(x.size(0), -1)), dim=1)
+        out = self.fc(F.dropout(rcx, training=self.training))
+        return F.sigmoid(out)
+
+    def _init_hidden_state(self, batch_size):
+        h0 = torch.zeros(2, batch_size, self.hidden_size)
+        if use_gpu:
+            h0 = h0.cuda()
+        return Variable(h0)
+
+
+def train(model, n_epoch=20):
 
     if use_gpu:
         model.cuda()
@@ -86,14 +118,10 @@ def train(model, step_size, n_epoch=20):
     model_type = model.__class__.__name__
 
     for epoch in range(n_epoch):
-        print('Epoch %03d:' % (epoch + 1))
+        print(f'Epoch {(epoch + 1):02d}')
         tr_loss, val_loss, tr_acc, val_acc = 0.0, 0.0, 0.0, 0.0
         model.train()
         for data, target in train_loader:
-            if model_type == 'RNN':
-                data = data.view(data.size(0), -1, step_size)
-            elif model_type == 'CNN':
-                data = data.view(data.size(0), 1, -1)
             target = target.view(target.size(0), 1)
             optimizer.zero_grad()
             if use_gpu:
@@ -112,10 +140,6 @@ def train(model, step_size, n_epoch=20):
 
         model.eval()
         for data, target in test_loader:
-            if model_type == 'RNN':
-                data = data.view(data.size(0), -1, step_size)
-            elif model_type == 'CNN':
-                data = data.view(data.size(0), 1, -1)
             target = target.view(target.size(0), 1)
             if use_gpu:
                 data, target = data.cuda(), target.cuda()
@@ -139,4 +163,4 @@ if __name__ == '__main__':
     train_loader = DataLoader(DSet(train_data), batch_size=128, **kwargs)
     test_loader = DataLoader(DSet(test_data), batch_size=128, **kwargs)
 
-    train(RNN(10), 10, 10)
+    train(RNN(10), 10)
