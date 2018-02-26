@@ -24,7 +24,6 @@ def get_prop_info():
         raw = json.load(open(item))
         span = np.array(list(map(lambda x: x['t'], raw)))
         data[item] = span - np.min(span)
-
     np.savez('data/prop_span.npz', **data)
 
 

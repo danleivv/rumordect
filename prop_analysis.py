@@ -109,7 +109,7 @@ class CombinedNet(nn.Module):
         return Variable(h0)
 
 
-def train(model, n_epoch=20):
+def train(model, n_epoch=10):
 
     if use_gpu:
         model.cuda()
@@ -120,8 +120,8 @@ def train(model, n_epoch=20):
     record = {x: list() for x in ['tr_loss', 'tr_acc', 'val_loss', 'val_acc']}
     for epoch in range(n_epoch):
         print(f'Epoch {(epoch + 1):02d}')
-        tr_loss, val_loss, tr_acc, val_acc = 0.0, 0.0, 0.0, 0.0
         model.train()
+        tr_loss, tr_acc = 0.0, 0.0
         for data, target in train_loader:
             target = target.view(target.size(0), 1)
             optimizer.zero_grad()
@@ -142,6 +142,7 @@ def train(model, n_epoch=20):
         print(f'tr_loss {tr_loss:.6f} | tr_acc {tr_acc*100:.2f}%')
 
         model.eval()
+        val_loss, val_acc = 0.0, 0.0
         for data, target in test_loader:
             target = target.view(target.size(0), 1)
             if use_gpu:
@@ -169,4 +170,4 @@ if __name__ == '__main__':
     train_loader = DataLoader(DSet(train_data), batch_size=128, **kwargs)
     test_loader = DataLoader(DSet(test_data), batch_size=128, **kwargs)
 
-    rec = train(CombinedNet(100, 10), 20)
+    rec = train(CombinedNet(100, 10), 10)
