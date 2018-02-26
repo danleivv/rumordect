@@ -18,13 +18,13 @@ use_gpu = torch.cuda.is_available()
 class DSet(Dataset):
 
     def __init__(self, samples, step=100):
-        self.data = np.zeros((len(samples), step))
+        self.data = np.zeros((len(samples), step), dtype=np.float32)
         self.target = np.zeros(len(samples), dtype=np.float32)
-        raw_data = json.load(open('data/prop_span.json'))
+        raw_data = np.load('data/prop_span.npz')
         for i, sample in enumerate(samples):
             span = raw_data[sample]
-            volumn = map(lambda x: int(x * step / 8.1), np.log10(span))
-            for item in volumn:
+            volumn = np.log10(span + 1) / 8.1 * step
+            for item in volumn.astype(int):
                 self.data[i][item] += 1
             if 'rumor' in sample:
                 self.target[i] = 1
@@ -33,10 +33,10 @@ class DSet(Dataset):
         return self.data.shape[0]
 
     def __getitem__(self, idx):
-        return torch.from_numpy(self.data[idx]).float(), self.target[idx]
+        return torch.from_numpy(self.data[idx]), self.target[idx]
 
 
-class CNN(torch.nn.Module):
+class CNN(nn.Module):
 
     def __init__(self, input_size):
         super(CNN, self).__init__()
@@ -55,7 +55,7 @@ class CNN(torch.nn.Module):
         return F.sigmoid(x)
 
 
-class RNN(torch.nn.Module):
+class RNN(nn.Module):
 
     def __init__(self, input_size, hidden_size=64, bidirectional=True):
         super(RNN, self).__init__()
@@ -79,20 +79,20 @@ class RNN(torch.nn.Module):
         return Variable(h0)
 
 
-class RCN(torch.nn.Module):
+class CombinedNet(nn.Module):
 
-    def __init__(self, input_size, step_size, hidden_size=64):
-        super(RCN, self).__init__()
+    def __init__(self, cnn_input_size, rnn_input_size, hidden_size=64):
+        super(CombinedNet, self).__init__()
         self.hidden_size = hidden_size
-        self.step_size = step_size
-        self.rnn = nn.GRU(step_size, hidden_size, batch_first=True, bidirectional=True, dropout=0.5)
+        self.rnn_input_size = rnn_input_size
+        self.rnn = nn.GRU(rnn_input_size, hidden_size, batch_first=True, bidirectional=True, dropout=0.5)
         self.conv1 = nn.Conv1d(1, 8, 3, padding=1)
         self.conv2 = nn.Conv1d(8, 16, 3, padding=1)
-        self.fc_dim = input_size // 4 * 16 + hidden_size * 2
+        self.fc_dim = cnn_input_size // 4 * 16 + hidden_size * 2
         self.fc = nn.Linear(self.fc_dim, 1)
 
     def forward(self, x):
-        rx = x.view(x.size(0), -1, self.step_size)
+        rx = x.view(x.size(0), -1, self.rnn_input_size)
         cx = x.view(x.size(0), 1, -1)
         h0 = self._init_hidden_state(rx.size(0))
         rx, hn = self.rnn(rx, h0)
@@ -115,8 +115,9 @@ def train(model, n_epoch=20):
         model.cuda()
     criterion = nn.BCELoss()
     optimizer = optim.RMSprop(model.parameters())
-    model_type = model.__class__.__name__
 
+    print(f'training {model.__class__.__name__} ...')
+    record = {x: list() for x in ['tr_loss', 'tr_acc', 'val_loss', 'val_acc']}
     for epoch in range(n_epoch):
         print(f'Epoch {(epoch + 1):02d}')
         tr_loss, val_loss, tr_acc, val_acc = 0.0, 0.0, 0.0, 0.0
@@ -132,11 +133,13 @@ def train(model, n_epoch=20):
             loss.backward()
             optimizer.step()
             tr_loss += loss.data[0] * data.size(0)
-            pred = torch.sign(output.data - 0.5).clamp_(min=0)
+            pred = torch.sign(output.data - 0.5).clamp(min=0)
             tr_acc += pred.eq(target.data).cpu().sum()
         tr_loss /= len(train_loader.dataset)
-        tr_acc = tr_acc / len(train_loader.dataset) * 100
-        print(f'tr_loss {tr_loss:.6f} | tr_acc {tr_acc:.2f}%')
+        tr_acc = tr_acc / len(train_loader.dataset)
+        record['tr_loss'].append(tr_loss)
+        record['tr_acc'].append(tr_acc)
+        print(f'tr_loss {tr_loss:.6f} | tr_acc {tr_acc*100:.2f}%')
 
         model.eval()
         for data, target in test_loader:
@@ -147,11 +150,14 @@ def train(model, n_epoch=20):
             output = model(data)
             loss = criterion(output, target)
             val_loss += loss.data[0] * data.size(0)
-            pred = torch.sign(output.data - 0.5).clamp_(min=0)
+            pred = torch.sign(output.data - 0.5).clamp(min=0)
             val_acc += pred.eq(target.data).cpu().sum()
         val_loss /= len(test_loader.dataset)
-        val_acc = val_acc / len(test_loader.dataset) * 100
-        print(f'val_loss {val_loss:.6f} | val_acc {val_acc:.2f}%')
+        val_acc = val_acc / len(test_loader.dataset)
+        record['val_loss'].append(val_loss)
+        record['val_acc'].append(val_acc)
+        print(f'val_loss {val_loss:.6f} | val_acc {val_acc*100:.2f}%')
+    return record
 
 
 if __name__ == '__main__':
@@ -163,4 +169,4 @@ if __name__ == '__main__':
     train_loader = DataLoader(DSet(train_data), batch_size=128, **kwargs)
     test_loader = DataLoader(DSet(test_data), batch_size=128, **kwargs)
 
-    train(RNN(10), 10)
+    rec = train(CombinedNet(100, 10), 20)

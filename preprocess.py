@@ -17,15 +17,15 @@ def classify_json():
 
 def get_prop_info():
 
+    import numpy as np
+
     data = dict()
     for item in (glob('rumor/*.json') + glob('truth/*.json')):
         raw = json.load(open(item))
-        begin = raw[0]['t']
-        span = list(map(lambda x: max(0, x['t'] - begin) + 1, raw))
-        data[item] = span
+        span = np.array(list(map(lambda x: x['t'], raw)))
+        data[item] = span - np.min(span)
 
-    with open('data/prop_span.json', 'w') as fw:
-        json.dump(data, fw)
+    np.savez('data/prop_span.npz', **data)
 
 
 if __name__ == '__main__':
