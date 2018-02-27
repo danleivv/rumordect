@@ -45,6 +45,36 @@ def get_content():
         thul.cut_f(original, cutted)
 
 
+def save_tokens(tokens, fname):
+
+    with open(fname.replace('cutted', 'tokenized'), 'w') as f:
+        for line in tokens:
+            f.write(' '.join(map(str, line)) + '\n')
+    print(f'saved {fname}')
+
+
+def tokenize():
+
+    from multiprocessing.pool import Pool
+    pool = Pool(processes=3)
+    word_dict, idx_dict = {}, []
+    vocab_size = 0
+    os.mkdir('data/tokenized_content')
+    for item in glob('data/cutted_content/*.txt'):
+        tokens = []
+        for line in open(item).readlines():
+            tokens.append([])
+            for word in line.split():
+                if word not in word_dict:
+                    word_dict[word] = vocab_size
+                    idx_dict.append(word)
+                    vocab_size += 1
+                tokens[-1].append(word_dict[word])
+        print(f'tokenized {item}')
+        Pool.apply_async(save_tokens, (tokens, item))
+
+
+
 if __name__ == '__main__':
 
     get_content()
