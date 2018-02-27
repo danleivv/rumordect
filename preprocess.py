@@ -71,10 +71,11 @@ def tokenize():
                     vocab_size += 1
                 tokens[-1].append(word_dict[word])
         print(f'tokenized {item}')
-        Pool.apply_async(save_tokens, (tokens, item))
-
+        pool.apply_async(save_tokens, (tokens, item))
+    pool.close()
+    pool.join()
 
 
 if __name__ == '__main__':
 
-    get_content()
+    tokenize()
