@@ -1,7 +1,8 @@
 #!/usr/bin/env python3.6
-import os
 import json
+import os
 from glob import glob
+
 
 def classify_json():
 

@@ -1,16 +1,16 @@
 #!/usr/bin/env python3.6
 
 import json
+from glob import glob
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.autograd import Variable
-from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
-from glob import glob
-
+from torch.autograd import Variable
+from torch.utils.data import DataLoader, Dataset
 
 use_gpu = torch.cuda.is_available()
 
@@ -167,7 +167,7 @@ if __name__ == '__main__':
     samples = glob('rumor/*.json') + glob('truth/*.json')
     train_data, test_data = train_test_split(samples, test_size=0.2, random_state=42)
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_gpu else {}
-    train_loader = DataLoader(DSet(train_data), batch_size=128, **kwargs)
+    train_loader = DataLoader(DSet(train_data), batch_size=128, shuffle=True, **kwargs)
     test_loader = DataLoader(DSet(test_data), batch_size=128, **kwargs)
 
     rec = train(CombinedNet(100, 10), 10)
