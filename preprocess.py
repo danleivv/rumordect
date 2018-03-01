@@ -51,7 +51,8 @@ def tokenize():
 
     counter = Counter()
     vocab = {}
-    os.mkdir('data/tokenized_content')
+    if not os.path.exists('data/tokenized_content'):
+        os.mkdir('data/tokenized_content')
     for item in glob('data/cutted_content/*.txt'):
         for line in open(item).readlines():
             counter.update(line.split())
@@ -63,6 +64,19 @@ def tokenize():
             line = map(lambda x: str(vocab[x]), line.split())
             tokens += ' '.join(line) + '\n'
         with open(item.replace('cutted', 'tokenized'), 'w') as f:
+            f.write(tokens)
+    json.dump(vocab, open('data/word2idx.json', 'w'), indent=4)
+
+
+def replace_lowfrq(k=10000):
+
+    os.mkdir(f'data/tokenized_{k}')
+    for item in glob('data/tokenized_content/*.txt'):
+        tokens = ''
+        for line in open(item).readlines():
+            line = map(lambda x: str(min(k, int(x))), line.split())
+            tokens += ' '.join(line) + '\n'
+        with open(item.replace('tokenized_content', f'tokenized_{k}'), 'w') as f:
             f.write(tokens)
 
 
