@@ -66,3 +66,8 @@ class RNN(nn.Module):
         if use_gpu:
             h0 = h0.cuda()
         return Variable(h0)
+
+
+if __name__ == '__main__':
+
+    doc2vec()
