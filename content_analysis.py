@@ -11,11 +11,41 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader, Dataset
 from sklearn.model_selection import train_test_split
 from gensim.models.doc2vec import Doc2Vec, TaggedDocument
+from gensim.models.callbacks import CallbackAny2Vec
+from sklearn.linear_model import LogisticRegression
 
 use_gpu = torch.cuda.is_available()
 
 
-def doc2vec(stage=20, vector_size=100, vocab_size=10000):
+class TestLogger(CallbackAny2Vec):
+
+    def __init__(self, stage):
+        self.epochs = 0
+        self.stage = stage
+
+    def on_epoch_end(self, model):
+        self.epochs += 1
+        # print(self.epochs)
+        if self.epochs % 50 == 0:
+            X, y = [], []
+            for item in (glob('rumor/*.json') + glob('truth/*.json')):
+                basename = item.split('/')[-1][:-4]
+                for i in range(self.stage):
+                    label = basename + str(i)
+                    if label in model.docvecs:
+                        X.append(model.docvecs[label])
+                        y.append(1 if 'rumor' in item else 0)
+            X = np.vstack(X)
+            X_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.2)
+            clf = LogisticRegression()
+            clf.fit(X_tr, y_tr)
+            print(f'on epoch {self.epochs}:')
+            print(clf.score(X_tr, y_tr))
+            print(clf.score(X_val, y_val))
+            model.save(f'data/doc2vec_{self.epochs}.model')
+
+
+def doc2vec(epochs=100, *, stage=20, vector_size=100, vocab_size=10000):
 
     def split_doc(item):
         basename = item.split('/')[-1][:-3]
@@ -42,34 +72,14 @@ def doc2vec(stage=20, vector_size=100, vocab_size=10000):
         labeled_doc += split_doc(item)
     model = Doc2Vec(vector_size=vector_size, window=8, min_count=5, workers=6)
     model.build_vocab(labeled_doc)
-    model.train(labeled_doc, epochs=10, start_alpha=0.025, end_alpha=0.005, total_examples=model.corpus_count)
-    model.save('data/doc2vec.model')
+    test = TestLogger(stage)
+    model.train(labeled_doc, epochs=epochs, start_alpha=0.025, end_alpha=0.005, total_examples=model.corpus_count, callbacks=[test])
+    model.save(f'data/doc2vec_{epochs}.model')
 
 
-def test_docvec(stage=20, vector_size=100):
+def get_docvec(epochs):
 
-    from sklearn.linear_model import LogisticRegression
-
-    X, y = [], []
-    model = Doc2Vec.load('data/doc2vec.model')
-    for item in (glob('rumor/*.json') + glob('truth/*.json')):
-        basename = item.split('/')[-1][:-4]
-        for i in range(stage):
-            label = basename + str(i)
-            if label in model.docvecs:
-                X.append(model.docvecs[label])
-                y.append(1 if 'rumor' in item else 0)
-    X = np.vstack(X)
-    X_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.2)
-    clf = LogisticRegression()
-    clf.fit(X_tr, y_tr)
-    print(clf.score(X_tr, y_tr))
-    print(clf.score(X_val, y_val))
-
-
-def get_docvec():
-
-    model = Doc2Vec.load('data/doc2vec.model')
+    model = Doc2Vec.load(f'data/doc2vec_{epochs}.model')
 
 
 
@@ -100,4 +110,4 @@ class RNN(nn.Module):
 
 if __name__ == '__main__':
 
-    test_docvec()
+    doc2vec(300)
