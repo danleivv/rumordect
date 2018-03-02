@@ -10,37 +10,51 @@ import torch.optim as optim
 from torch.autograd import Variable
 from torch.utils.data import DataLoader, Dataset
 from sklearn.model_selection import train_test_split
-from gensim.models.doc2vec import Doc2vec, LabeledSentence
+from gensim.models.doc2vec import Doc2Vec, TaggedDocument
 
 use_gpu = torch.cuda.is_available()
 
 
-def doc2vec(stage=20, dim=100, vocab_size=10000):
+def doc2vec(stage=20, vector_size=100, vocab_size=10000):
 
     def split_doc(item):
         basename = item.split('/')[-1][:-3]
         doc = open(item).readlines()
         splitted = []
         span = (len(doc)) // stage
-        rest = (len(doc)) - span * n_stage
+        rest = (len(doc)) - span * stage
         start = 0
         for i in range(rest):
             sentence = ''.join(doc[start:start+span+1]).replace('\n', ' ')
-            labeled = LabeledSentence(sentence, [basename + str(i)])
+            labeled = TaggedDocument(sentence, [basename + str(i)])
             splitted.append(labeled)
             start += span + 1
         if span:
             for i in range(stage - rest):
-                sentence = ''.join(doc[start:start+span]).replace('\n', '')
-                labeled = LabeledSentence(sentence, [basename + str(i + rest)])
+                sentence = ''.join(doc[start:start+span]).replace('\n', ' ')
+                labeled = TaggedDocument(sentence, [basename + str(i + rest)])
                 splitted.append(labeled)
                 start += span
         return splitted
 
     labeled_doc = []
     for item in glob('data/tokenized_content/*.txt'):
-        labeled_doc.append(split_doc(item))
-    model = Doc2Vec(labeled_doc, size=100, window=8, min_count=5, workers=4)
+        labeled_doc += split_doc(item)
+    model = Doc2Vec(vector_size=vector_size, window=8, min_count=5, workers=6)
+    model.build_vocab(labeled_doc)
+    model.train(labeled_doc, epochs=10, start_alpha=0.025, end_alpha=0.005, total_examples=model.corpus_count)
+    model.save('data/doc2vec.model')
+
+
+def test_docvec():
+
+    model = Doc2Vec.load('data/doc2vec.model')
+
+
+def get_docvec():
+
+    model = Doc2Vec.load('data/doc2vec.model')
+
 
 
 class RNN(nn.Module):
@@ -61,7 +75,7 @@ class RNN(nn.Module):
         x = self.fc(x[:, -1, :])
         return F.sigmoid(x)
 
-    def _init_hidden_state(self, batch_size)
+    def _init_hidden_state(self, batch_size):
         h0 = torch.zeros(self.n_directions, batch_size, self.hidden_size)
         if use_gpu:
             h0 = h0.cuda()
