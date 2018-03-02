@@ -46,9 +46,25 @@ def doc2vec(stage=20, vector_size=100, vocab_size=10000):
     model.save('data/doc2vec.model')
 
 
-def test_docvec():
+def test_docvec(stage=20, vector_size=100):
 
+    from sklearn.linear_model import LogisticRegression
+
+    X, y = [], []
     model = Doc2Vec.load('data/doc2vec.model')
+    for item in (glob('rumor/*.json') + glob('truth/*.json')):
+        basename = item.split('/')[-1][:-4]
+        for i in range(stage):
+            label = basename + str(i)
+            if label in model.docvecs:
+                X.append(model.docvecs[label])
+                y.append(1 if 'rumor' in item else 0)
+    X = np.vstack(X)
+    X_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.2)
+    clf = LogisticRegression()
+    clf.fit(X_tr, y_tr)
+    print(clf.score(X_tr, y_tr))
+    print(clf.score(X_val, y_val))
 
 
 def get_docvec():
@@ -84,4 +100,4 @@ class RNN(nn.Module):
 
 if __name__ == '__main__':
 
-    doc2vec()
+    test_docvec()
