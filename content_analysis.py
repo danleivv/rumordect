@@ -162,14 +162,16 @@ class CNN(nn.Module):
 
     def __init__(self, input_h, input_w):
         super(CNN, self).__init__()
-        self.conv1 = nn.Conv2d(1, 8, 3, padding=1)
-        self.conv2 = nn.Conv2d(8, 16, 3, padding=1)
-        self.fc1 = nn.Linear(input_h * input_w, 64)
+        self.conv1 = nn.Conv2d(1, 16, (3, input_w), padding=(1, 0))
+        self.conv2 = nn.Conv1d(16, 32, 3, padding=1)
+        self.fc1 = nn.Linear(input_h // 4 * 32, 64)
         self.fc2 = nn.Linear(64, 1)
 
     def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2(x), 2))
+        x = x.view(x.size(0), 1, x.size(1), x.size(2))
+        x = self.conv1(x).view(x.size(0), -1, x.size(2))
+        x = F.relu(F.max_pool1d(x), 2)
+        x = F.relu(F.max_pool1d(self.conv2(x), 2))
         x = F.dropout(x.view(x.size(0), -1), training=self.training)
         x = F.dropout(F.relu(self.fc1(x)), training=self.training)
         x = self.fc2(x)
@@ -185,7 +187,7 @@ def train(model, epochs=10):
 
     print(f'training {model.__class__.__name__} ...')
     record = {x: list() for x in ['tr_loss', 'tr_acc', 'val_loss', 'val_acc']}
-    for epoch in range(n_epoch):
+    for epoch in range(epochs):
         print(f'Epoch {(epoch + 1):02d}')
         model.train()
         tr_loss, tr_acc = 0.0, 0.0
