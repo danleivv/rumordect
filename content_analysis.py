@@ -162,9 +162,9 @@ class CNN(nn.Module):
 
     def __init__(self, input_h, input_w):
         super(CNN, self).__init__()
-        self.conv1 = nn.Conv2d(1, 6, (7, input_w), padding=(3, 0))
-        self.conv2 = nn.Conv1d(6, 4, 5, padding=2)
-        self.fc1 = nn.Linear(input_h // 4 * 4, 64)
+        self.conv1 = nn.Conv2d(1, 4, (5, input_w), padding=(2, 0))
+        self.conv2 = nn.Conv1d(6, 4, 7, padding=3)
+        self.fc1 = nn.Linear(input_h // 4 * 6, 64)
         self.fc2 = nn.Linear(64, 1)
 
     def forward(self, x):
