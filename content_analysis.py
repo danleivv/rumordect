@@ -119,11 +119,14 @@ def stacking(epochs=750, stage=20):
     X, y = [], []
     data_loader = DataLoader(DSet(samples, epochs))
     for data, target in data_loader:
-        data, target = data.numpy(), target.numpy()
-        X.append(clf.predict_proba(data))
-        print(X)
-        y.append(target)
-        break
+        data = data.numpy().reshape(stage, -1)
+        X.append(clf.predict_proba(data)[:, 0])
+        y.append(target.numpy())
+    clf = RandomForestClassifier()
+    X_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.2)
+    clf.fit(X_tr, y_tr)
+    print(clf.score(X_tr, y_tr))
+    print(clf.score(X_val, y_val))
 
 
 class RNN(nn.Module):
