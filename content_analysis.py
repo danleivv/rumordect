@@ -77,9 +77,35 @@ def doc2vec(epochs=100, *, stage=20, vector_size=100, vocab_size=10000):
     model.save(f'data/doc2vec_{epochs}.model')
 
 
-def get_docvec(epochs):
+class DSet(Dataset):
 
-    model = Doc2Vec.load(f'data/doc2vec_{epochs}.model')
+    def __init__(self, samples, epochs, stage=20, vector_size=100):
+        self.model = Doc2Vec.load(f'data/doc2vec_{epochs}.model')
+        self.data = np.zeros((len(samples), stage, vector_size), dtype=np.float32)
+        self.target = np.zeros(len(samples), dtype=np.float32)
+        for i, sample in enumerate(samples):
+            basename = item.split('/')[-1][:-4]
+            for j in range(stage):
+                label = basename + str(j)
+                if label in model.docvecs:
+                    data[i, j] = model.docvecs[label]
+            if 'rumor' in sample:
+                self.target[i] = 1
+
+    def __len__(self):
+        return self.data.shape[0]
+
+    def __getitem__(self, idx):
+        return torch.from_numpy(self.data[idx]), self.target[idx]
+
+
+def stacking():
+
+    samples = glob('rumor/*.json') + glob('truth/*.json')
+    train_data, test_data = train_test_split(samples, test_size=0.2)
+    train_loader = DataLoader(DSet(train_data, 750))
+    for data, target in train_loader:
+        print(type(data), type(target))
 
 
 
