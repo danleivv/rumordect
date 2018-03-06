@@ -12,7 +12,7 @@ from sklearn.model_selection import train_test_split
 from torch.autograd import Variable
 from torch.utils.data import DataLoader, Dataset
 
-use_gpu = torch.cuda.is_available()
+use_cuda = torch.cuda.is_available()
 
 
 class DSet(Dataset):
@@ -74,7 +74,7 @@ class RNN(nn.Module):
 
     def _init_hidden_state(self, batch_size):
         h0 = torch.zeros(self.n_directions, batch_size, self.hidden_size)
-        if use_gpu:
+        if use_cuda:
             h0 = h0.cuda()
         return Variable(h0)
 
@@ -104,14 +104,14 @@ class CombinedNet(nn.Module):
 
     def _init_hidden_state(self, batch_size):
         h0 = torch.zeros(2, batch_size, self.hidden_size)
-        if use_gpu:
+        if use_cuda:
             h0 = h0.cuda()
         return Variable(h0)
 
 
 def train(model, n_epoch=10):
 
-    if use_gpu:
+    if use_cuda:
         model.cuda()
     criterion = nn.BCELoss()
     optimizer = optim.RMSprop(model.parameters())
@@ -125,7 +125,7 @@ def train(model, n_epoch=10):
         for data, target in train_loader:
             target = target.view(target.size(0), 1)
             optimizer.zero_grad()
-            if use_gpu:
+            if use_cuda:
                 data, target = data.cuda(), target.cuda()
             data, target = Variable(data), Variable(target)
             output = model(data)
@@ -145,7 +145,7 @@ def train(model, n_epoch=10):
         val_loss, val_acc = 0.0, 0.0
         for data, target in test_loader:
             target = target.view(target.size(0), 1)
-            if use_gpu:
+            if use_cuda:
                 data, target = data.cuda(), target.cuda()
             data, target = Variable(data, volatile=True), Variable(target)
             output = model(data)
@@ -166,7 +166,7 @@ if __name__ == '__main__':
     print('loading data ...')
     samples = glob('rumor/*.json') + glob('truth/*.json')
     train_data, test_data = train_test_split(samples, test_size=0.2, random_state=42)
-    kwargs = {'num_workers': 1, 'pin_memory': True} if use_gpu else {}
+    kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
     train_loader = DataLoader(DSet(train_data), batch_size=128, shuffle=True, **kwargs)
     test_loader = DataLoader(DSet(test_data), batch_size=128, **kwargs)
 

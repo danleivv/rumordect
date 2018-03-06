@@ -16,7 +16,10 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 
 
-use_gpu = torch.cuda.is_available()
+use_cuda = torch.cuda.is_available()
+STAGE = 20
+VEC_SIZE = 100
+D2V_EPOCH = 750
 
 
 class TestLogger(CallbackAny2Vec):
@@ -47,7 +50,7 @@ class TestLogger(CallbackAny2Vec):
             model.save(f'data/doc2vec_{self.epochs}.model')
 
 
-def doc2vec(epochs=100, *, stage=20, vector_size=100, vocab_size=10000):
+def doc2vec(epochs=1000, *, stage=STAGE, vector_size=VEC_SIZE, vocab_size=10000):
 
     def split_doc(item):
         basename = item.split('/')[-1][:-3]
@@ -81,16 +84,16 @@ def doc2vec(epochs=100, *, stage=20, vector_size=100, vocab_size=10000):
 
 class DSet(Dataset):
 
-    def __init__(self, samples, epochs, stage=20, vector_size=100):
-        self.model = Doc2Vec.load(f'data/doc2vec_{epochs}.model')
+    def __init__(self, samples, epochs=D2V_EPOCH, stage=STAGE, vector_size=VEC_SIZE):
         self.data = np.zeros((len(samples), stage, vector_size), dtype=np.float32)
         self.target = np.zeros(len(samples), dtype=np.float32)
+        model = Doc2Vec.load(f'data/doc2vec_{epochs}.model')
         for i, sample in enumerate(samples):
             basename = sample.split('/')[-1][:-4]
             for j in range(stage):
                 label = basename + str(j)
-                if label in self.model.docvecs:
-                    self.data[i, j] = self.model.docvecs[label]
+                if label in model.docvecs:
+                    self.data[i, j] = model.docvecs[label]
             if 'rumor' in sample:
                 self.target[i] = 1
 
@@ -122,11 +125,12 @@ def stacking(epochs=750, stage=20):
         data = data.numpy().reshape(stage, -1)
         X.append(clf.predict_proba(data)[:, 0])
         y.append(target.numpy())
-    clf = RandomForestClassifier()
+    y = np.hstack(y)
+    clf = LogisticRegression()
     X_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.2)
     clf.fit(X_tr, y_tr)
     print(clf.score(X_tr, y_tr))
-    print(clf.score(X_val, y_val))
+    print(clf.score(X_val, y_valst))
 
 
 class RNN(nn.Module):
@@ -149,11 +153,87 @@ class RNN(nn.Module):
 
     def _init_hidden_state(self, batch_size):
         h0 = torch.zeros(self.n_directions, batch_size, self.hidden_size)
-        if use_gpu:
+        if use_cuda:
             h0 = h0.cuda()
         return Variable(h0)
 
 
+class CNN(nn.Module):
+
+    def __init__(self, input_h, input_w):
+        super(CNN, self).__init__()
+        self.conv1 = nn.Conv2d(1, 8, 3, padding=1)
+        self.conv2 = nn.Conv2d(8, 16, 3, padding=1)
+        self.fc1 = nn.Linear(input_h * input_w, 64)
+        self.fc2 = nn.Linear(64, 1)
+
+    def forward(self, x):
+        x = F.relu(F.max_pool2d(self.conv1(x), 2))
+        x = F.relu(F.max_pool2d(self.conv2(x), 2))
+        x = F.dropout(x.view(x.size(0), -1), training=self.training)
+        x = F.dropout(F.relu(self.fc1(x)), training=self.training)
+        x = self.fc2(x)
+        return F.sigmoid(x)
+
+
+def train(model, epochs=10):
+
+    if use_cuda:
+        model.cuda()
+    criterion = nn.BCELoss()
+    optimizer = optim.RMSprop(model.parameters())
+
+    print(f'training {model.__class__.__name__} ...')
+    record = {x: list() for x in ['tr_loss', 'tr_acc', 'val_loss', 'val_acc']}
+    for epoch in range(n_epoch):
+        print(f'Epoch {(epoch + 1):02d}')
+        model.train()
+        tr_loss, tr_acc = 0.0, 0.0
+        for data, target in train_loader:
+            target = target.view(target.size(0), 1)
+            optimizer.zero_grad()
+            if use_cuda:
+                data, target = data.cuda(), target.cuda()
+            data, target = Variable(data), Variable(target)
+            output = model(data)
+            loss = criterion(output, target)
+            loss.backward()
+            optimizer.step()
+            tr_loss += loss.data[0] * data.size(0)
+            pred = torch.sign(output.data - 0.5).clamp(min=0)
+            tr_acc += pred.eq(target.data).cpu().sum()
+        tr_loss /= len(train_loader.dataset)
+        tr_acc = tr_acc / len(train_loader.dataset)
+        record['tr_loss'].append(tr_loss)
+        record['tr_acc'].append(tr_acc)
+        print(f'tr_loss {tr_loss:.6f} | tr_acc {tr_acc*100:.2f}%')
+
+        model.eval()
+        val_loss, val_acc = 0.0, 0.0
+        for data, target in test_loader:
+            target = target.view(target.size(0), 1)
+            if use_cuda:
+                data, target = data.cuda(), target.cuda()
+            data, target = Variable(data, volatile=True), Variable(target)
+            output = model(data)
+            loss = criterion(output, target)
+            val_loss += loss.data[0] * data.size(0)
+            pred = torch.sign(output.data - 0.5).clamp(min=0)
+            val_acc += pred.eq(target.data).cpu().sum()
+        val_loss /= len(test_loader.dataset)
+        val_acc = val_acc / len(test_loader.dataset)
+        record['val_loss'].append(val_loss)
+        record['val_acc'].append(val_acc)
+        print(f'val_loss {val_loss:.6f} | val_acc {val_acc*100:.2f}%')
+    return record
+
+
 if __name__ == '__main__':
 
-    stacking()
+    print('loading data ...')
+    samples = glob('rumor/*.json') + glob('truth/*.json')
+    train_data, test_data = train_test_split(samples, test_size=0.2, random_state=42)
+    kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
+    train_loader = DataLoader(DSet(train_data), batch_size=128, shuffle=True, **kwargs)
+    test_loader = DataLoader(DSet(test_data), batch_size=128, **kwargs)
+    rec = train(CNN(STAGE, VEC_SIZE))
