@@ -13,6 +13,8 @@ from sklearn.model_selection import train_test_split
 from gensim.models.doc2vec import Doc2Vec, TaggedDocument
 from gensim.models.callbacks import CallbackAny2Vec
 from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+
 
 use_gpu = torch.cuda.is_available()
 
@@ -84,11 +86,11 @@ class DSet(Dataset):
         self.data = np.zeros((len(samples), stage, vector_size), dtype=np.float32)
         self.target = np.zeros(len(samples), dtype=np.float32)
         for i, sample in enumerate(samples):
-            basename = item.split('/')[-1][:-4]
+            basename = sample.split('/')[-1][:-4]
             for j in range(stage):
                 label = basename + str(j)
-                if label in model.docvecs:
-                    data[i, j] = model.docvecs[label]
+                if label in self.model.docvecs:
+                    self.data[i, j] = self.model.docvecs[label]
             if 'rumor' in sample:
                 self.target[i] = 1
 
@@ -96,17 +98,28 @@ class DSet(Dataset):
         return self.data.shape[0]
 
     def __getitem__(self, idx):
-        return torch.from_numpy(self.data[idx]), self.target[idx]
+        return self.data[idx], self.target[idx]
 
 
-def stacking():
+def stacking(epochs=750, stage=20):
 
-    samples = glob('rumor/*.json') + glob('truth/*.json')
-    train_data, test_data = train_test_split(samples, test_size=0.2)
-    train_loader = DataLoader(DSet(train_data, 750))
-    for data, target in train_loader:
-        print(type(data), type(target))
+    model = Doc2Vec.load(f'data/doc2vec_{epochs}.model')
 
+    X, y = [], []
+    for item in (glob('rumor/*.json') + glob('truth/*.json')):
+        basename = item.split('/')[-1][:-4]
+        for i in range(stage):
+            label = basename + str(i)
+            if label in model.docvecs:
+                X.append(model.docvecs[label])
+                y.append(1 if 'rumor' in item else 0)
+    X = np.vstack(X)
+    X_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.2)
+    clf = LogisticRegression()
+    clf.fit(X_tr, y_tr)
+    print(f'on epoch {epochs}:')
+    print(clf.score(X_tr, y_tr))
+    print(clf.score(X_val, y_val))
 
 
 class RNN(nn.Module):

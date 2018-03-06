@@ -33,7 +33,7 @@ class DSet(Dataset):
         return self.data.shape[0]
 
     def __getitem__(self, idx):
-        return torch.from_numpy(self.data[idx]), self.target[idx]
+        return self.data[idx], self.target[idx]
 
 
 class CNN(nn.Module):
