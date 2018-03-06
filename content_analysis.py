@@ -104,9 +104,9 @@ class DSet(Dataset):
 def stacking(epochs=750, stage=20):
 
     model = Doc2Vec.load(f'data/doc2vec_{epochs}.model')
-
     X, y = [], []
-    for item in (glob('rumor/*.json') + glob('truth/*.json')):
+    samples = glob('rumor/*.json') + glob('truth/*.json')
+    for item in samples:
         basename = item.split('/')[-1][:-4]
         for i in range(stage):
             label = basename + str(i)
@@ -114,12 +114,16 @@ def stacking(epochs=750, stage=20):
                 X.append(model.docvecs[label])
                 y.append(1 if 'rumor' in item else 0)
     X = np.vstack(X)
-    X_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.2)
     clf = LogisticRegression()
-    clf.fit(X_tr, y_tr)
-    print(f'on epoch {epochs}:')
-    print(clf.score(X_tr, y_tr))
-    print(clf.score(X_val, y_val))
+    clf.fit(X, y)
+    X, y = [], []
+    data_loader = DataLoader(DSet(samples, epochs))
+    for data, target in data_loader:
+        data, target = data.numpy(), target.numpy()
+        X.append(clf.predict_proba(data))
+        print(X)
+        y.append(target)
+        break
 
 
 class RNN(nn.Module):
@@ -149,4 +153,4 @@ class RNN(nn.Module):
 
 if __name__ == '__main__':
 
-    doc2vec(300)
+    stacking()
