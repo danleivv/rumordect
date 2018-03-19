@@ -163,7 +163,7 @@ class CNN(nn.Module):
     def __init__(self, input_h, input_w):
         super(CNN, self).__init__()
         self.conv1 = nn.Conv2d(1, 4, (5, input_w), padding=(2, 0))
-        self.conv2 = nn.Conv1d(6, 4, 7, padding=3)
+        self.conv2 = nn.Conv1d(4, 6, 7, padding=3)
         self.fc1 = nn.Linear(input_h // 4 * 6, 64)
         self.fc2 = nn.Linear(64, 1)
 
