@@ -23,6 +23,7 @@ text_path = 'data/cutted_content/'
 tfidf_voc_path = 'data/tfidf_voc.pkl'
 label_enc_path = 'data/label_enc.pkl'
 tfidf_rank_path = 'data/tfidf_rank.npz'
+prop_graph_path = 'data/prop_graph.npz'
 nstage = 20
 max_features = 10000
 top_k = 10
@@ -61,7 +62,7 @@ def make_tfidf():
 
 class DSet(Dataset):
 
-    def __init__(self, samples, step=100):
+    def __init__(self, samples):
         self.data = np.zeros((len(samples), nstage, top_k), dtype=int)
         self.target = np.zeros(len(samples), dtype=np.float32)
         raw_data = np.load(tfidf_rank_path)
@@ -74,8 +75,33 @@ class DSet(Dataset):
     def __len__(self):
         return self.data.shape[0]
 
-    def __getitem__(self, idx):
-        return self.data[idx], self.target[idx]
+    def __getitem__(self, ix):
+        return self.data[ix], self.target[ix]
+
+
+class CDSet(Dataset):
+
+    def __init__(self, samples, step=100):
+        self.data_cont = np.zeros((len(samples), nstage, top_k), dtype=int)
+        self.data_prop = np.zeros((len(samples), step, 4), dtype=np.float32)
+        self.target = np.zeros(len(samples), dtype=np.float32)
+        raw_data_cont = np.load(tfidf_rank_path)
+        raw_data_prop = np.load(prop_graph_path)
+        for i, sample in enumerate(samples):
+            basename = sample.split('/')[-1][:-5]
+            self.data_cont[i] = raw_data[basename]
+            for t, lx, ly, x, y in raw_data_prop[sample]:
+                if ly > 5: continue
+                tid = int(np.log10(t + 1) * step / 8.1)
+                self.data_prop[i][tid][ly-2] += 1
+            if 'rumor' in sample:
+                self.target[i] = 1
+
+    def __len__(self):
+        return self.target.shape[0]
+
+    def __getitem__(self, ix):
+        return (self.data_cont[ix], self.data_prop[ix]), self.target[ix]
 
 
 class CNN(nn.Module):
@@ -97,7 +123,7 @@ class CNN(nn.Module):
         x = F.sigmoid(self.fc(x))
         return x
 
-    
+
 class RNN(nn.Module):
 
     def __init__(self, voc_size, emb_size, hidden_size=100):
@@ -112,7 +138,41 @@ class RNN(nn.Module):
         x = torch.mean(self.emb(x), dim=2).view(x.size(0), nstage, -1)
         x, hn = self.rnn(x, h0)
         x = self.fc(x[:, -1, :])
-        return F.sigmoid(x)    
+        return F.sigmoid(x)
+
+
+class NET(nn.Module):
+
+    def __init__(self, voc_size, emb_size, input_size):
+        super(NET, self).__init__()
+        self.emb = nn.Embedding(voc_size, emb_size)
+        self.cconv1 = nn.Conv2d(1, 8, (7, emb_size), padding=(3, 0))
+        self.cconv2 = nn.Conv1d(8, 16, 3, padding=1)
+        self.cfc = nn.Linear(nstage * 16 // 4, 64)
+
+        self.pconv1 = nn.Conv2d(1, 8, (3, 2), padding=(1, 0))
+        self.pconv2 = nn.Conv2d(8, 16, 3, padding=(1, 0))
+        self.pfc = nn.Linear(input_size // 4 * 16, 64)
+
+        self.fc = nn.Linear(64 * 2, 1)
+
+    def forward(self, x, y):
+
+        x = torch.mean(self.emb(x), dim=2).view(x.size(0), 1, nstage, -1)
+        x = self.cconv1(x).view(x.size(0), -1, x.size(2))
+        x = F.relu(F.max_pool1d(x, 2))
+        x = F.relu(F.max_pool1d(self.cconv2(x), 2))
+        x = F.dropout(x.view(x.size(0), -1), training=self.training)
+        x = F.sigmoid(self.cfc(x))
+
+        y = y.view(y.size(0), 1, y.size(1), y.size(2))
+        y = F.relu(F.max_pool2d(self.pconv1(y), kernel_size=(2, 1), stride=(2, 1)))
+        y = F.relu(F.max_pool2d(self.pconv2(y), kernel_size=(2, 1), stride=(2, 1)))
+        y = F.dropout(y.view(y.size(0), -1), training=self.training)
+        y = F.relu(self.pfc(y))
+
+        z = self.fc(torch.cat((x, y), 1))
+        return F.sigmoid(z)
 
 
 def train(model, n_epoch=20):
@@ -139,7 +199,7 @@ def train(model, n_epoch=20):
             optimizer.step()
             tr_loss += loss.item() * data.size(0)
             pred = torch.sign(output.cpu() - 0.5).clamp(min=0)
-            tr_acc += pred.eq(target.cpu()).sum().numpy()
+            tr_acc += pred.eq(target.cpu()).sum().item()
         tr_loss /= len(train_loader.dataset)
         tr_acc /= len(train_loader.dataset)
         record['tr_loss'].append(tr_loss)
@@ -157,7 +217,62 @@ def train(model, n_epoch=20):
                 loss = criterion(output, target)
                 val_loss += loss.item() * data.size(0)
                 pred = torch.sign(output.cpu() - 0.5).clamp(min=0)
-                val_acc += pred.eq(target.cpu()).sum().numpy()
+                val_acc += pred.eq(target.cpu()).sum().item()
+                record['predict'].append(output.cpu().numpy())
+        val_loss /= len(test_loader.dataset)
+        val_acc /= len(test_loader.dataset)
+        record['val_loss'].append(val_loss)
+        record['val_acc'].append(val_acc)
+        print(f'val_loss {val_loss:.6f} | val_acc {val_acc*100:.2f}%')
+        if record['val_acc'][-1] > acc_max:
+            acc_max = record['val_acc'][-1]
+            record['final'] = np.vstack(record['predict']).reshape(-1)
+    return record
+
+
+def xtrain(model, n_epoch=20):
+
+    model.to(device)
+    criterion = nn.BCELoss()
+    optimizer = optim.RMSprop(model.parameters())
+    # optimizer = optim.SGD(model.parameters(), lr=0.05)
+
+    print(f'training {model.__class__.__name__} ...')
+    acc_max = 0.0
+    record = {x: list() for x in ['tr_loss', 'tr_acc', 'val_loss', 'val_acc', 'predict']}
+    for epoch in range(n_epoch):
+        print(f'Epoch {(epoch + 1):02d}')
+        model.train()
+        tr_loss, tr_acc = 0.0, 0.0
+        for datac, datap, target in train_loader:
+            target = target.view(target.size(0), 1)
+            datac, datap, target = datac.to(device), datap.to(device), target.to(device)
+            optimizer.zero_grad()
+            output = model(datac, datap)
+            loss = criterion(output, target)
+            loss.backward()
+            optimizer.step()
+            tr_loss += loss.item() * data.size(0)
+            pred = torch.sign(output.cpu() - 0.5).clamp(min=0)
+            tr_acc += pred.eq(target.cpu()).sum().item()
+        tr_loss /= len(train_loader.dataset)
+        tr_acc /= len(train_loader.dataset)
+        record['tr_loss'].append(tr_loss)
+        record['tr_acc'].append(tr_acc)
+        print(f'tr_loss {tr_loss:.6f} | tr_acc {tr_acc*100:.2f}%')
+
+        model.eval()
+        val_loss, val_acc = 0.0, 0.0
+        record['predict'] = []
+        with torch.no_grad():
+            for data, target in test_loader:
+                target = target.view(target.size(0), 1)
+                datac, datap, target = datac.to(device), datap.to(device), target.to(device)
+                output = model(datac, datap)
+                loss = criterion(output, target)
+                val_loss += loss.item() * data.size(0)
+                pred = torch.sign(output.cpu() - 0.5).clamp(min=0)
+                val_acc += pred.eq(target.cpu()).sum().item()
                 record['predict'].append(output.cpu().numpy())
         val_loss /= len(test_loader.dataset)
         val_acc /= len(test_loader.dataset)
@@ -199,7 +314,7 @@ if __name__ == '__main__':
     train_loader = DataLoader(DSet(train_data), batch_size=128, shuffle=True, **kwargs)
     test_loader = DataLoader(DSet(test_data), batch_size=128, **kwargs)
 
-    rec = train(RNN(max_features, 100))
+    rec = train(NET(max_features, 100, 100))
     target = []
     for x, y in test_loader:
         target.append(y.numpy())
