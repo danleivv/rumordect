@@ -16,19 +16,7 @@ def classify_json():
             os.system('mv Weibo/%s rumor/' % fname)
 
 
-def get_timespan_info():
-
-    import numpy as np
-
-    data = {}
-    for item in (glob('rumor/*.json') + glob('truth/*.json')):
-        raw = json.load(open(item))
-        span = np.array(list(map(lambda x: x['t'], raw)))
-        data[item] = span - np.min(span)
-    np.savez('data/prop_span.npz', **data)
-
-
-def get_graph_info():
+def get_prop_info():
 
     import numpy as np
     from collections import defaultdict
@@ -41,8 +29,9 @@ def get_graph_info():
         graph = []
         for msg in raw:
             x, y, t = msg['parent'], msg['mid'], msg['t']
+            x = 0 if x == None else x
             layer[y] = layer[x] + 1
-            graph.append((t - begin, layer[x], layer[y]))
+            graph.append((t - begin, layer[x], layer[y], int(x), int(y)))
         data[item] = np.vstack(graph)
     np.savez('data/prop_graph.npz', **data)
 
@@ -102,4 +91,4 @@ def replace_lowfrq(k=10000):
 
 if __name__ == '__main__':
 
-    get_graph_info()
+    get_timespan_info()

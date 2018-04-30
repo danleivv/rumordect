@@ -18,14 +18,15 @@ use_cuda = torch.cuda.is_available()
 class DSet(Dataset):
 
     def __init__(self, samples, step=100):
-        self.data = np.zeros((len(samples), step), dtype=np.float32)
+        self.data = np.zeros((len(samples), step, 4), dtype=np.float32)
         self.target = np.zeros(len(samples), dtype=np.float32)
         raw_data = np.load('data/prop_graph.npz')
         for i, sample in enumerate(samples):
             span = raw_data[sample][:, 0]
-            volumn = np.log10(span + 1) / 8.1 * step
-            for item in volumn.astype(int):
-                self.data[i][item] += 1
+            for t, lx, ly, x, y in raw_data[sample]:
+                if ly > 5: continue
+                tid = int(np.log10(t + 1) * step / 8.1)
+                self.data[i][tid][ly-2] += 1
             if 'rumor' in sample:
                 self.target[i] = 1
 
@@ -40,15 +41,15 @@ class CNN(nn.Module):
 
     def __init__(self, input_size):
         super(CNN, self).__init__()
-        self.conv1 = nn.Conv1d(1, 8, 3, padding=1)
-        self.conv2 = nn.Conv1d(8, 16, 3, padding=1)
+        self.conv1 = nn.Conv2d(1, 8, (3, 2), padding=(1, 0))
+        self.conv2 = nn.Conv2d(8, 16, 3, padding=(1, 0))
         self.fc1 = nn.Linear(input_size // 4 * 16, 64)
         self.fc2 = nn.Linear(64, 1)
 
     def forward(self, x):
-        x = x.view(x.size(0), 1, -1)
-        x = F.relu(F.max_pool1d(self.conv1(x), 2))
-        x = F.relu(F.max_pool1d(self.conv2(x), 2))
+        x = x.view(x.size(0), 1, x.size(1), x.size(2))
+        x = F.relu(F.max_pool2d(self.conv1(x), kernel_size=(2, 1), stride=(2, 1)))
+        x = F.relu(F.max_pool2d(self.conv2(x), kernel_size=(2, 1), stride=(2, 1)))
         x = F.dropout(x.view(x.size(0), -1), training=self.training)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
@@ -86,18 +87,18 @@ class CombinedNet(nn.Module):
         self.hidden_size = hidden_size
         self.rnn_input_size = rnn_input_size
         self.rnn = nn.GRU(rnn_input_size, hidden_size, batch_first=True, bidirectional=True, dropout=0.5)
-        self.conv1 = nn.Conv1d(1, 8, 3, padding=1)
-        self.conv2 = nn.Conv1d(8, 16, 3, padding=1)
+        self.conv1 = nn.Conv2d(1, 8, (3, 2), padding=(1, 0))
+        self.conv2 = nn.Conv2d(8, 16, 3, padding=(1, 0))
         self.fc_dim = cnn_input_size // 4 * 16 + hidden_size * 2
         self.fc = nn.Linear(self.fc_dim, 1)
 
     def forward(self, x):
         rx = x.view(x.size(0), -1, self.rnn_input_size)
-        cx = x.view(x.size(0), 1, -1)
+        cx = x.view(x.size(0), 1, x.size(1), x.size(2))
         h0 = self._init_hidden_state(rx.size(0))
         rx, hn = self.rnn(rx, h0)
-        cx = F.relu(F.max_pool1d(self.conv1(cx), 2))
-        cx = F.relu(F.max_pool1d(self.conv2(cx), 2))
+        cx = F.relu(F.max_pool2d(self.conv1(cx), kernel_size=(2, 1), stride=(2, 1)))
+        cx = F.relu(F.max_pool2d(self.conv2(cx), kernel_size=(2, 1), stride=(2, 1)))
         rcx = torch.cat((rx[:, -1, :].view(x.size(0), -1), cx.view(x.size(0), -1)), dim=1)
         out = self.fc(F.dropout(rcx, training=self.training))
         return F.sigmoid(out)
@@ -109,13 +110,13 @@ class CombinedNet(nn.Module):
         return Variable(h0)
 
 
-def train(model, n_epoch=100, lr=0.05):
+def train(model, n_epoch=100):
 
     if use_cuda:
         model.cuda()
     criterion = nn.BCELoss()
-    optimizer = optim.RMSprop(model.parameters())
-    # optimizer = optim.SGD(model.parameters(), lr=lr)
+    # optimizer = optim.RMSprop(model.parameters())
+    optimizer = optim.SGD(model.parameters(), lr=0.05)
 
     print(f'training {model.__class__.__name__} ...')
     acc_max = 0.0
@@ -172,7 +173,7 @@ def census(output, target):
 
     from sklearn.metrics import roc_curve, roc_auc_score, precision_score, recall_score, f1_score, accuracy_score
 
-    fpr, tpr, _ = roc_curve(target, output)
+    tpr, fpr, _ = roc_curve(target, output)
     auc = roc_auc_score(target, output)
     output[output < 0.5] = 0
     output[output > 0.4] = 1
@@ -185,7 +186,7 @@ def census(output, target):
     acc = accuracy_score(target, output)
     print(f'acc: {acc:.3f}\nrp: {rp:.3f}\nrr: {rr:.3f}\nrf: {rf:.3f}')
     print(f'np: {np:.3f}\nnr: {nr:.3f}\nnf: {nf:.3f}')
-    return {'tpr': tpr, 'fpr': fpr, 'auc': auc}
+    return tpr, fpr, auc
 
 
 if __name__ == '__main__':
@@ -200,6 +201,6 @@ if __name__ == '__main__':
     target = []
     for x, y in test_loader:
         target.append(y.numpy())
-
-    rec = train(RNN(10), 20)
-    rnn = census(rec['final'], np.hstack(target).astype(int))
+    # rec = train(CNN(100), 100)
+    rec = train(CombinedNet(100, 20), 100)
+    tpr, fpr, auc = census(rec['final'], np.hstack(target).astype(int))

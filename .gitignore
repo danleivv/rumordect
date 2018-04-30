@@ -2,5 +2,5 @@ data/
 rumor/
 truth/
 .ipynb_checkpoints/
-
+*.png
 .vscode/
