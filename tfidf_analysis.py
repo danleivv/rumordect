@@ -42,22 +42,24 @@ def make_tfidf():
         # print(doc)
         return doc
 
-    docs = []
-    for ix, item in enumerate(glob(text_path + '*.txt')):
-        docs += split_doc(item)
-    tfidf = TfidfVectorizer(max_features=max_features).fit_transform(docs)
-    rank = np.argsort(tfidf.toarray(), axis=1)[:, -top_k:]
-    label_enc = LabelEncoder()
-    rank = label_enc.fit_transform(rank.reshape(-1)).reshape(-1, top_k)
-    joblib.dump(tfidf, tfidf_voc_path)
-    joblib.dump(label_enc, label_enc_path)
-    print('top K vocsize:', np.max(rank))
+    for ddl in [1, 2, 6, 12, 24, 36, 48, 72, 96]:
+        docs = []
+        for ix, item in enumerate(glob(f'data/cutted_content_{ddl}/*.txt')):
+            docs += split_doc(item)
+        tfidf = TfidfVectorizer(max_features=max_features).fit_transform(docs)
+        print(len(docs), tfidf.shape)
+        rank = np.argsort(tfidf.toarray(), axis=1)[:, -top_k:]
+        label_enc = LabelEncoder()
+        rank = label_enc.fit_transform(rank.reshape(-1)).reshape(-1, top_k)
+        joblib.dump(tfidf, tfidf_voc_path)
+        joblib.dump(label_enc, label_enc_path)
+        print('top K vocsize:', np.max(rank))
 
-    rank_dic = {}
-    for ix, item in enumerate(glob(text_path + '*.txt')):
-        basename = item.split('/')[-1][:-4]
-        rank_dic[basename] = rank[ix * nstage: ix * nstage + nstage]
-    np.savez(tfidf_rank_path, **rank_dic)
+        rank_dic = {}
+        for ix, item in enumerate(glob(text_path + '*.txt')):
+            basename = item.split('/')[-1][:-4]
+            rank_dic[basename] = rank[ix * nstage: ix * nstage + nstage]
+        np.savez(f'data/tfidf_rank_{ddl}.npz', **rank_dic)
 
 
 class DSet(Dataset):
@@ -81,18 +83,24 @@ class DSet(Dataset):
 
 class CDSet(Dataset):
 
-    def __init__(self, samples, step=100):
+    def __init__(self, samples, step=100, ddl=None):
         self.data_cont = np.zeros((len(samples), nstage, top_k), dtype=int)
         self.data_prop = np.zeros((len(samples), step, 4), dtype=np.float32)
         self.target = np.zeros(len(samples), dtype=np.float32)
-        raw_data_cont = np.load(tfidf_rank_path)
+        if not ddl:
+            raw_data_cont = np.load(tfidf_rank_path)
+        else:
+            raw_data_cont = np.load(f'data/tfidf_rank_{ddl}.npz')
         raw_data_prop = np.load(prop_graph_path)
+        
+        span = 8.1 if not ddl else np.log10(ddl * 3600) + 1
         for i, sample in enumerate(samples):
             basename = sample.split('/')[-1][:-5]
-            self.data_cont[i] = raw_data[basename]
+            self.data_cont[i] = raw_data_cont[basename]
             for t, lx, ly, x, y in raw_data_prop[sample]:
                 if ly > 5: continue
-                tid = int(np.log10(t + 1) * step / 8.1)
+                if ddl and t > ddl * 3600: continue
+                tid = int(np.log10(t + 1) * step / span)
                 self.data_prop[i][tid][ly-2] += 1
             if 'rumor' in sample:
                 self.target[i] = 1
@@ -101,7 +109,7 @@ class CDSet(Dataset):
         return self.target.shape[0]
 
     def __getitem__(self, ix):
-        return (self.data_cont[ix], self.data_prop[ix]), self.target[ix]
+        return self.data_cont[ix], self.data_prop[ix], self.target[ix]
 
 
 class CNN(nn.Module):
@@ -230,7 +238,7 @@ def train(model, n_epoch=20):
     return record
 
 
-def xtrain(model, n_epoch=20):
+def xtrain(model, n_epoch=5):
 
     model.to(device)
     criterion = nn.BCELoss()
@@ -241,7 +249,7 @@ def xtrain(model, n_epoch=20):
     acc_max = 0.0
     record = {x: list() for x in ['tr_loss', 'tr_acc', 'val_loss', 'val_acc', 'predict']}
     for epoch in range(n_epoch):
-        print(f'Epoch {(epoch + 1):02d}')
+        
         model.train()
         tr_loss, tr_acc = 0.0, 0.0
         for datac, datap, target in train_loader:
@@ -252,36 +260,34 @@ def xtrain(model, n_epoch=20):
             loss = criterion(output, target)
             loss.backward()
             optimizer.step()
-            tr_loss += loss.item() * data.size(0)
+            tr_loss += loss.item() * datac.size(0)
             pred = torch.sign(output.cpu() - 0.5).clamp(min=0)
             tr_acc += pred.eq(target.cpu()).sum().item()
         tr_loss /= len(train_loader.dataset)
         tr_acc /= len(train_loader.dataset)
         record['tr_loss'].append(tr_loss)
         record['tr_acc'].append(tr_acc)
-        print(f'tr_loss {tr_loss:.6f} | tr_acc {tr_acc*100:.2f}%')
+        print(f'Epoch {(epoch + 1):02d} | tr_loss {tr_loss:.6f} | tr_acc {tr_acc*100:.2f}%')
 
-        model.eval()
-        val_loss, val_acc = 0.0, 0.0
-        record['predict'] = []
-        with torch.no_grad():
-            for data, target in test_loader:
-                target = target.view(target.size(0), 1)
-                datac, datap, target = datac.to(device), datap.to(device), target.to(device)
-                output = model(datac, datap)
-                loss = criterion(output, target)
-                val_loss += loss.item() * data.size(0)
-                pred = torch.sign(output.cpu() - 0.5).clamp(min=0)
-                val_acc += pred.eq(target.cpu()).sum().item()
-                record['predict'].append(output.cpu().numpy())
-        val_loss /= len(test_loader.dataset)
-        val_acc /= len(test_loader.dataset)
-        record['val_loss'].append(val_loss)
-        record['val_acc'].append(val_acc)
-        print(f'val_loss {val_loss:.6f} | val_acc {val_acc*100:.2f}%')
-        if record['val_acc'][-1] > acc_max:
-            acc_max = record['val_acc'][-1]
-            record['final'] = np.vstack(record['predict']).reshape(-1)
+    model.eval()
+    val_loss, val_acc = 0.0, 0.0
+    record['predict'] = []
+    with torch.no_grad():
+        for datac, datap, target in test_loader:
+            target = target.view(target.size(0), 1)
+            datac, datap, target = datac.to(device), datap.to(device), target.to(device)
+            output = model(datac, datap)
+            loss = criterion(output, target)
+            val_loss += loss.item() * datac.size(0)
+            pred = torch.sign(output.cpu() - 0.5).clamp(min=0)
+            val_acc += pred.eq(target.cpu()).sum().item()
+            record['predict'].append(output.cpu().numpy())
+    val_loss /= len(test_loader.dataset)
+    val_acc /= len(test_loader.dataset)
+    record['val_loss'].append(val_loss)
+    record['val_acc'].append(val_acc)
+    record['predict'] = np.vstack(record['predict']).reshape(-1)
+    print(f'val_loss {val_loss:.6f} | val_acc {val_acc*100:.2f}%')
     return record
 
 
@@ -311,12 +317,16 @@ if __name__ == '__main__':
     samples = glob('rumor/*.json') + glob('truth/*.json')
     train_data, test_data = train_test_split(samples, test_size=0.2, random_state=42)
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
-    train_loader = DataLoader(DSet(train_data), batch_size=128, shuffle=True, **kwargs)
-    test_loader = DataLoader(DSet(test_data), batch_size=128, **kwargs)
+    for ddl in [1, 2, 6, 12, 24, 36, 48, 72, 96]:
+        train_loader = DataLoader(CDSet(train_data, 100, ddl), batch_size=128, shuffle=True, **kwargs)
+        test_loader = DataLoader(CDSet(test_data, 100, ddl), batch_size=128, **kwargs)
 
-    rec = train(NET(max_features, 100, 100))
-    target = []
-    for x, y in test_loader:
-        target.append(y.numpy())
-    # rec = train(CNN(100), 100)
-    tpr, fpr, auc = census(rec['final'], np.hstack(target).astype(int))
+        rec = xtrain(NET(max_features, 100, 100))
+        target = []
+        for *x, y in test_loader:
+            target.append(y.numpy())
+        # rec = train(CNN(100), 100)
+        print('ddl:', ddl)
+        tpr, fpr, auc = census(rec['predict'], np.hstack(target).astype(int))
+
+

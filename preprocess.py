@@ -38,20 +38,40 @@ def get_prop_info():
 
 def get_content():
 
-    import thulac
+    import os, thulac
 
-    thul = thulac.thulac(seg_only=True)
-    os.mkdir('data/original_content')
-    os.mkdir('data/cutted_content')
+    def cut_content():
+
+        thul = thulac.thulac(seg_only=True)
+        os.mkdir('data/original_content_')
+        os.mkdir('data/cutted_content_')
+
+        for item in (glob('rumor/*.json') + glob('truth/*.json')):
+            fid = os.path.basename(item)[:-5]
+            original = f'data/original_content_/{fid}.txt'
+            cutted = f'data/cutted_content_/{fid}.txt'
+            raw = sorted(json.load(open(item)), key=lambda x: x['t'])
+            begin = raw[0]['t']
+            data = list(map(lambda x: x['text'] + '\n', raw))
+            with open(original, 'w') as f:
+                f.writelines(data)
+            thul.cut_f(original, cutted)
+                
+    ddl = [1, 2, 6, 12, 24, 36, 48, 72, 96]
+    # for i in ddl:
+    #     os.mkdir(f'data/cutted_content_{i}')
     for item in (glob('rumor/*.json') + glob('truth/*.json')):
         fid = os.path.basename(item)[:-5]
-        original = f'data/original_content/{fid}.txt'
-        cutted = f'data/cutted_content/{fid}.txt'
-        raw = json.load(open(item))
-        data = list(map(lambda x: x['text'] + '\n', raw))
-        with open(original, 'w') as f:
-            f.writelines(data)
-        thul.cut_f(original, cutted)
+        raw = sorted(json.load(open(item)), key=lambda x: x['t'])
+        begin = raw[0]['t']
+        for dtime in ddl:
+            for i in range(len(raw)):
+                if raw[i]['t'] - begin > dtime * 3600:
+                    os.system(f'head -{i} data/cutted_content_/{fid}.txt > data/cutted_content_{dtime}/{fid}.txt')
+                    break
+            else:
+                os.system(f'cat data/cutted_content_/{fid}.txt > data/cutted_content_{dtime}/{fid}.txt')
+
 
 
 def tokenize():
@@ -91,4 +111,4 @@ def replace_lowfrq(k=10000):
 
 if __name__ == '__main__':
 
-    get_timespan_info()
+    get_content()
