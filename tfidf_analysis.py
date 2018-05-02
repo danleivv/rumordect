@@ -158,7 +158,7 @@ class NET(nn.Module):
         self.cconv2 = nn.Conv1d(8, 16, 3, padding=1)
         self.cfc = nn.Linear(nstage * 16 // 4, 64)
 
-        self.pconv1 = nn.Conv2d(1, 8, (3, 2), padding=(1, 0))
+        self.pconv1 = nn.Conv2d(1, 8, (7, 2), padding=(3, 0))
         self.pconv2 = nn.Conv2d(8, 16, 3, padding=(1, 0))
         self.pfc = nn.Linear(input_size // 4 * 16, 64)
 
@@ -267,7 +267,7 @@ def xtrain(model, n_epoch=5):
         tr_acc /= len(train_loader.dataset)
         record['tr_loss'].append(tr_loss)
         record['tr_acc'].append(tr_acc)
-        print(f'Epoch {(epoch + 1):02d} | tr_loss {tr_loss:.6f} | tr_acc {tr_acc*100:.2f}%')
+        # print(f'Epoch {(epoch + 1):02d} | tr_loss {tr_loss:.6f} | tr_acc {tr_acc*100:.2f}%')
 
     model.eval()
     val_loss, val_acc = 0.0, 0.0
@@ -287,7 +287,7 @@ def xtrain(model, n_epoch=5):
     record['val_loss'].append(val_loss)
     record['val_acc'].append(val_acc)
     record['predict'] = np.vstack(record['predict']).reshape(-1)
-    print(f'val_loss {val_loss:.6f} | val_acc {val_acc*100:.2f}%')
+    # print(f'val_loss {val_loss:.6f} | val_acc {val_acc*100:.2f}%')
     return record
 
 
@@ -313,22 +313,35 @@ def census(output, target):
 
 if __name__ == '__main__':
 
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import pandas as pd
+
     print('loading data ...')
     samples = glob('rumor/*.json') + glob('truth/*.json')
     train_data, test_data = train_test_split(samples, test_size=0.2, random_state=42)
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
 
-    import sys
-    ddl = int(sys.argv[1])
-    train_loader = DataLoader(CDSet(train_data, 100, ddl), batch_size=128, shuffle=True, **kwargs)
-    test_loader = DataLoader(CDSet(test_data, 100, ddl), batch_size=128, **kwargs)
+    
+    train_loader = DataLoader(CDSet(train_data, 100), batch_size=128, shuffle=True, **kwargs)
+    test_loader = DataLoader(CDSet(test_data, 100), batch_size=128, **kwargs)
 
-    rec = xtrain(NET(max_features, 100, 100))
-    target = []
-    for *x, y in test_loader:
-        target.append(y.numpy())
-    # rec = train(CNN(100), 100)
-    print('ddl:', ddl)
-    tpr, fpr, auc = census(rec['predict'], np.hstack(target).astype(int))
+    for i in range(100):
+        model = Net(max_features, 100, 100)
+        rec = xtrain(NET(max_features, 100, 100))
+        pweight = model.pconv1.weight.cpu().numpy().reshape(8, 7, 2)
+        f, ax = plt.subplots(1, 2, figsize=(16, 6))
+        sns.heatmap(pd.DataFrame(pweight[:, :, 0]), vmax=0.5, vmin=-1, ax=ax[0])
+        sns.heatmap(pd.DataFrame(pweight[:, :, 1]), vmax=0.5, vmin=-1, ax=ax[1])
+        plt.savefig(f'heatmapp/{i}.png', dpi=200)
+
+        plt.subplots(1, 1, figsize=(10, 10))
+        cweight = model.conv1.weight.cpu().numpy().reshape(8, 7, 100)
+        cweight = np.sum(cweight, axis=2).reshape(8, 7)
+        sns.headmap(dp.DataFrame(cweight), ax=ax[0])
+        plt.savefig(f'heatmapc/{i}.png', dpi=200)
+        
+        
+    
 
 
