@@ -92,7 +92,7 @@ class CDSet(Dataset):
         else:
             raw_data_cont = np.load(f'data/tfidf_rank_{ddl}.npz')
         raw_data_prop = np.load(prop_graph_path)
-        
+
         span = 8.1 if not ddl else np.log10(ddl * 3600) + 1
         for i, sample in enumerate(samples):
             basename = sample.split('/')[-1][:-5]
@@ -249,7 +249,7 @@ def xtrain(model, n_epoch=5):
     acc_max = 0.0
     record = {x: list() for x in ['tr_loss', 'tr_acc', 'val_loss', 'val_acc', 'predict']}
     for epoch in range(n_epoch):
-        
+
         model.train()
         tr_loss, tr_acc = 0.0, 0.0
         for datac, datap, target in train_loader:
@@ -317,16 +317,18 @@ if __name__ == '__main__':
     samples = glob('rumor/*.json') + glob('truth/*.json')
     train_data, test_data = train_test_split(samples, test_size=0.2, random_state=42)
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
-    for ddl in [1, 2, 6, 12, 24, 36, 48, 72, 96]:
-        train_loader = DataLoader(CDSet(train_data, 100, ddl), batch_size=128, shuffle=True, **kwargs)
-        test_loader = DataLoader(CDSet(test_data, 100, ddl), batch_size=128, **kwargs)
 
-        rec = xtrain(NET(max_features, 100, 100))
-        target = []
-        for *x, y in test_loader:
-            target.append(y.numpy())
-        # rec = train(CNN(100), 100)
-        print('ddl:', ddl)
-        tpr, fpr, auc = census(rec['predict'], np.hstack(target).astype(int))
+    import sys
+    ddl = int(sys.argv[1])
+    train_loader = DataLoader(CDSet(train_data, 100, ddl), batch_size=128, shuffle=True, **kwargs)
+    test_loader = DataLoader(CDSet(test_data, 100, ddl), batch_size=128, **kwargs)
+
+    rec = xtrain(NET(max_features, 100, 100))
+    target = []
+    for *x, y in test_loader:
+        target.append(y.numpy())
+    # rec = train(CNN(100), 100)
+    print('ddl:', ddl)
+    tpr, fpr, auc = census(rec['predict'], np.hstack(target).astype(int))
 
 
