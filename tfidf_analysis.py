@@ -311,35 +311,50 @@ def census(output, target):
     return tpr, fpr, auc
 
 
-if __name__ == '__main__':
+def get_weights(total):
 
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    import pandas as pd
-
-    print('loading data ...')
-    samples = glob('rumor/*.json') + glob('truth/*.json')
-    train_data, test_data = train_test_split(samples, test_size=0.2, random_state=42)
-    kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
-
-
-    train_loader = DataLoader(CDSet(train_data, 100), batch_size=128, shuffle=True, **kwargs)
-    test_loader = DataLoader(CDSet(test_data, 100), batch_size=128, **kwargs)
-
-    for i in range(100):
+    for i in range(total):
         model = NET(max_features, 100, 100)
         rec = xtrain(model)
         pweight = model.pconv1.weight.detach().cpu().numpy().reshape(8, 7, 2)
         cweight = model.cconv1.weight.detach().cpu().numpy().reshape(8, 7, 100)
         cweight = np.sum(cweight, axis=2).reshape(8, 7)
         np.savez(f'heatmaps/{i}.npz', pweight=pweight, cweight=cweight)
-        # f, ax = plt.subplots(1, 2, figsize=(16, 6))
-        # sns.heatmap(pd.DataFrame(pweight[:, :, 0]), vmax=0.5, vmin=-1, ax=ax[0])
-        # sns.heatmap(pd.DataFrame(pweight[:, :, 1]), vmax=0.5, vmin=-1, ax=ax[1])
-        # plt.savefig(f'heatmapp/{i}.png', dpi=200)
 
-        # plt.subplots(1, 1, figsize=(10, 10))
-        # cweight = model.cconv1.weight.detach().cpu().numpy().reshape(8, 7, 100)
-        # cweight = np.sum(cweight, axis=2).reshape(8, 7)
-        # sns.heatmap(pd.DataFrame(cweight), ax=ax[0])
-        # plt.savefig(f'heatmapc/{i}.png', dpi=200)
+
+def draw_checkboard(total):
+
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import pandas as pd
+
+    for i in range(total):
+
+        data = np.load(f'heatmaps/{i}.npz')
+        pweight, cweight = data['pweight'], data['cweight']
+
+        f, ax = plt.subplots(1, 2, figsize=(16, 6))
+        sns.heatmap(pd.DataFrame(pweight[:, :, 0]), vmax=0.5, vmin=-1, ax=ax[0])
+        sns.heatmap(pd.DataFrame(pweight[:, :, 1]), vmax=0.5, vmin=-1, ax=ax[1])
+        plt.savefig(f'heatmapp/{i}.png', dpi=200)
+
+        f, ax = plt.subplots(1, 1, figsize=(10, 10))
+        sns.heatmap(pd.DataFrame(cweight), ax=ax[0])
+        plt.savefig(f'heatmapc/{i}.png', dpi=200)
+
+
+if __name__ == '__main__':
+
+    # print('loading data ...')
+    # samples = glob('rumor/*.json') + glob('truth/*.json')
+    # train_data, test_data = train_test_split(samples, test_size=0.2, random_state=42)
+    # kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
+
+
+    # train_loader = DataLoader(CDSet(train_data, 100), batch_size=128, shuffle=True, **kwargs)
+    # test_loader = DataLoader(CDSet(test_data, 100), batch_size=128, **kwargs)
+
+    draw_checkboard(500)
+
+    
+
