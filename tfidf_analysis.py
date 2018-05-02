@@ -322,26 +322,24 @@ if __name__ == '__main__':
     train_data, test_data = train_test_split(samples, test_size=0.2, random_state=42)
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
 
-    
+
     train_loader = DataLoader(CDSet(train_data, 100), batch_size=128, shuffle=True, **kwargs)
     test_loader = DataLoader(CDSet(test_data, 100), batch_size=128, **kwargs)
 
     for i in range(100):
-        model = Net(max_features, 100, 100)
-        rec = xtrain(NET(max_features, 100, 100))
-        pweight = model.pconv1.weight.cpu().numpy().reshape(8, 7, 2)
-        f, ax = plt.subplots(1, 2, figsize=(16, 6))
-        sns.heatmap(pd.DataFrame(pweight[:, :, 0]), vmax=0.5, vmin=-1, ax=ax[0])
-        sns.heatmap(pd.DataFrame(pweight[:, :, 1]), vmax=0.5, vmin=-1, ax=ax[1])
-        plt.savefig(f'heatmapp/{i}.png', dpi=200)
-
-        plt.subplots(1, 1, figsize=(10, 10))
-        cweight = model.conv1.weight.cpu().numpy().reshape(8, 7, 100)
+        model = NET(max_features, 100, 100)
+        rec = xtrain(model)
+        pweight = model.pconv1.weight.detach().cpu().numpy().reshape(8, 7, 2)
+        cweight = model.cconv1.weight.detach().cpu().numpy().reshape(8, 7, 100)
         cweight = np.sum(cweight, axis=2).reshape(8, 7)
-        sns.headmap(dp.DataFrame(cweight), ax=ax[0])
-        plt.savefig(f'heatmapc/{i}.png', dpi=200)
-        
-        
-    
+        np.savez(f'heatmaps/{i}.npz', pweight=pweight, cweight=cweight)
+        # f, ax = plt.subplots(1, 2, figsize=(16, 6))
+        # sns.heatmap(pd.DataFrame(pweight[:, :, 0]), vmax=0.5, vmin=-1, ax=ax[0])
+        # sns.heatmap(pd.DataFrame(pweight[:, :, 1]), vmax=0.5, vmin=-1, ax=ax[1])
+        # plt.savefig(f'heatmapp/{i}.png', dpi=200)
 
-
+        # plt.subplots(1, 1, figsize=(10, 10))
+        # cweight = model.cconv1.weight.detach().cpu().numpy().reshape(8, 7, 100)
+        # cweight = np.sum(cweight, axis=2).reshape(8, 7)
+        # sns.heatmap(pd.DataFrame(cweight), ax=ax[0])
+        # plt.savefig(f'heatmapc/{i}.png', dpi=200)
