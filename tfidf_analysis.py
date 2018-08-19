@@ -333,14 +333,18 @@ def draw_checkboard(total):
         data = np.load(f'heatmaps/{i}.npz')
         pweight, cweight = data['pweight'], data['cweight']
 
+        plt.figure()
+
         f, ax = plt.subplots(1, 2, figsize=(16, 6))
-        sns.heatmap(pd.DataFrame(pweight[:, :, 0]), vmax=0.5, vmin=-1, ax=ax[0])
-        sns.heatmap(pd.DataFrame(pweight[:, :, 1]), vmax=0.5, vmin=-1, ax=ax[1])
+        sns.heatmap(pd.DataFrame(pweight[:, :, 0]), ax=ax[0])
+        sns.heatmap(pd.DataFrame(pweight[:, :, 1]), ax=ax[1])
         plt.savefig(f'heatmapp/{i}.png', dpi=200)
 
         f, ax = plt.subplots(1, 1, figsize=(10, 10))
-        sns.heatmap(pd.DataFrame(cweight), ax=ax[0])
+        sns.heatmap(pd.DataFrame(cweight), ax=ax)
         plt.savefig(f'heatmapc/{i}.png', dpi=200)
+
+        print('done for', i)
 
 
 if __name__ == '__main__':
@@ -356,5 +360,5 @@ if __name__ == '__main__':
 
     draw_checkboard(500)
 
-    
+
 
